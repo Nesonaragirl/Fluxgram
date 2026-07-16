@@ -103,7 +103,7 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          ./gradlew :TMessagesProj:assembleAfatDebug \
+          ./gradlew :TMessagesProj_App:assembleAfatDebug \
             --no-daemon \
             --parallel \
             --build-cache \
@@ -118,6 +118,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fluxgram-debug
-          path: TMessagesProj/build/outputs/apk/**/*.apk
+          path: TMessagesProj_App/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 14
