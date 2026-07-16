@@ -232,6 +232,10 @@ import org.telegram.ui.bots.BotWebViewSheet;
 import org.telegram.ui.bots.WebViewRequestProps;
 import org.webrtc.voiceengine.WebRtcAudioTrack;
 
+// FluxGram Edit Mode
+import org.telegram.ui.Components.EditMode.EditModeButton;
+import org.telegram.ui.Components.EditMode.EditModeOverlayView;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -550,6 +554,17 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 setVisibility(GONE);
             }
         });
+
+        // ── FluxGram Edit Mode ────────────────────────────────────────────────
+        // Overlay draws slot highlights over the live UI when edit mode is active.
+        // Button floats in the bottom-right corner and toggles edit mode on tap.
+        // Both views sit above all other content so they're always reachable.
+        EditModeOverlayView editModeOverlay = new EditModeOverlayView(this);
+        frameLayout.addView(editModeOverlay,
+            LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        EditModeButton.attachTo(frameLayout);
+        // ── End FluxGram Edit Mode ────────────────────────────────────────────
+
         setupActionBarLayout();
         drawerLayoutContainer.setParentActionBarLayout(actionBarLayout);
         actionBarLayout.setDrawerLayoutContainer(drawerLayoutContainer);
