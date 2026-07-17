@@ -1,103 +1,100 @@
 package org.telegram.ui.Components.EditMode;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
-import android.content.ClipData;
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
+import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
-import android.os.Build;
-import android.text.TextUtils;
-import android.view.DragEvent;
-import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 import static org.telegram.messenger.AndroidUtilities.dp;
 
 /**
- * EditModeOverlayView
+ * EditModeOverlayView — WYSIWYG view-transform editor.
  *
- * Full-screen overlay rendered on top of the real Telegram UI when edit mode is active.
- * Draws translucent slot containers over the four customizable regions of the app:
- *   • TopBar (left / center / right zones)
- *   • BottomBar (5 slots)
- *   • ChatInput (left / center / right zones)
- *   • Sidebar
+ * Sits full-screen above all Telegram UI. When edit mode is active:
+ *  • Tap any real UI element to select it (shows a dashed amber border)
+ *  • Drag inside the selection to MOVE the view (translationX/Y)
+ *  • Drag a corner square to uniformly RESIZE (scale)
+ *  • Drag the amber circle above the selection to ROTATE
+ *  • Drag the green slider below the selection to set corner RADIUS
+ *  • Tap "Reset" in the bottom bar to remove all transforms from the selected view
  *
- * Each slot region:
- *   - Shows its contained component chips with a drag handle
- *   - Highlights on drag-over
- *   - Provides per-chip controls: show/hide, pin, remove, reorder
- *
- * Interaction model:
- *   - Long-press a chip to start dragging (View.startDragAndDrop)
- *   - Drop on any compatible slot region to move it there
- *   - Tap a chip to select and show its control panel
- *   - Tap outside to deselect
+ * Transforms are applied via View.setTranslationX/Y, setScaleX/Y, setRotation,
+ * setClipToOutline + ViewOutlineProvider — no layout files are modified.
+ * All states are persisted in SharedPreferences and re-applied on next launch.
  */
 public class EditModeOverlayView extends FrameLayout implements EditModeManager.Listener {
 
-    // ── Constants ─────────────────────────────────────────────────────────────
-    private static final int COLOR_SLOT_BG        = 0x18F59E0B;  // amber tint
-    private static final int COLOR_SLOT_BORDER     = 0x88F59E0B;
-    private static final int COLOR_SLOT_HOVER      = 0x30F59E0B;
-    private static final int COLOR_CHIP_BG         = 0xCC1E2C3A;
-    private static final int COLOR_CHIP_BORDER     = 0xFF2B5278;
-    private static final int COLOR_CHIP_SELECTED   = 0xFF5288C1;
-    private static final int COLOR_CHIP_PINNED     = 0xFF43A047;
-    private static final int COLOR_TEXT            = 0xFFE8E8E8;
-    private static final int COLOR_MUTED           = 0xFF7D8E9E;
-    private static final int COLOR_PANEL_BG        = 0xFF17212B;
-    private static final int CHIP_H                = 28;   // dp
-    private static final int CHIP_PADDING          = 6;    // dp
-    private static final int SLOT_PADDING          = 8;    // dp
-    private static final int PANEL_H               = 44;   // dp  (control panel)
+    // ── Sizes (dp) ────────────────────────────────────────────────────────────
+    private static final int HANDLE_R    = 10;  // corner handle half-size
+    private static final int ROT_OFFSET  = 38;  // rotation handle above top edge
+    private static final int PROP_H      = 52;  // property bar height
+    private static final int MIN_VIEW_DP = 18;  // smallest selectable view
+
+    // ── Colors ────────────────────────────────────────────────────────────────
+    private static final int C_DIM      = 0x50000000;
+    private static final int C_SEL      = 0xFFF59E0B;   // amber selection border
+    private static final int C_HANDLE   = 0xFFFFFFFF;
+    private static final int C_ROT      = 0xFFF59E0B;   // amber rotation handle
+    private static final int C_RADIUS   = 0xFF43A047;   // green radius slider
+    private static final int C_PROP_BG  = 0xF017212B;
+    private static final int C_RESET    = 0xFFE53935;
+    private static final int C_TEXT     = 0xFFE8E8E8;
 
     // ── Paints ────────────────────────────────────────────────────────────────
-    private final Paint slotBgPaint      = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint slotBorderPaint  = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint chipBgPaint      = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint chipBorderPaint  = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint textPaint        = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint mutedPaint       = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint overlayDimPaint  = new Paint();
-    private final RectF rect             = new RectF();
+    private final Paint pDim     = new Paint();
+    private final Paint pSel     = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pHandle  = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pRot     = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pLine    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pRadius  = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pSlBg    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pSlFg    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pPropBg  = new Paint();
+    private final Paint pReset   = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pText    = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pHLabel  = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-    // ── State ─────────────────────────────────────────────────────────────────
-    private final EditModeManager   mgr;
-    private       float             alpha       = 0f;   // 0→1 animation
-    private       String            selectedId  = null; // selected instanceId
-    private       String            dragId      = null; // currently dragged instanceId
-    private       String            hoverSlotId = null; // slot being hovered over during drag
+    // ── Manager ───────────────────────────────────────────────────────────────
+    private final EditModeManager mgr;
 
-    // Slot → screen position mapping (populated in onLayout / from host)
-    private final Map<String, RectF> slotRects      = new LinkedHashMap<>();
-    // Slots explicitly registered via setSlotView() — not overwritten by onLayout defaults
-    private final Set<String>        registeredSlots = new HashSet<>();
+    // ── Overlay fade ──────────────────────────────────────────────────────────
+    private float fade = 0f;  // 0..1
 
-    // Chip touch tracking
-    private float touchStartX, touchStartY;
-    private static final int LONG_PRESS_TIMEOUT_MS = 400;
-    private final Runnable longPressRunnable = this::startChipDrag;
-    private String touchedInstanceId = null;
+    // ── Selection ─────────────────────────────────────────────────────────────
+    private View   selectedView;
+    private String selectedId;
+    private final RectF selRect = new RectF(); // visual bounds in overlay coords, UN-rotated
+
+    // ── Transform state ───────────────────────────────────────────────────────
+    private ViewTransformState currentState;
+    private final Map<String, ViewTransformState> allStates = new HashMap<>();
+
+    // ── Handles (all in UN-rotated selection space) ───────────────────────────
+    private final RectF hTL  = new RectF(), hTR  = new RectF();
+    private final RectF hBL  = new RectF(), hBR  = new RectF();
+    private final RectF hRot  = new RectF();   // rotation circle
+    private final RectF hSlider = new RectF(); // radius slider track (full)
+    private final RectF propBar = new RectF(); // fixed-screen-space property bar
+    private final RectF hReset  = new RectF(); // reset button inside prop bar
+
+    // ── Drag state ────────────────────────────────────────────────────────────
+    private enum Mode { NONE, MOVE, RESIZE_TL, RESIZE_TR, RESIZE_BL, RESIZE_BR, ROTATE, RADIUS }
+    private Mode dragMode = Mode.NONE;
+    private float touchDownX, touchDownY;
+    private float centerAtDown_X, centerAtDown_Y;
+    private ViewTransformState stateAtDown;
 
     // ── Constructor ───────────────────────────────────────────────────────────
     public EditModeOverlayView(Context context) {
@@ -106,558 +103,462 @@ public class EditModeOverlayView extends FrameLayout implements EditModeManager.
         mgr.addListener(this);
 
         setWillNotDraw(false);
-        setVisibility(View.GONE);
-        setClickable(true); // intercept taps
+        setVisibility(GONE);
+        setClickable(true);
 
-        slotBgPaint.setColor(COLOR_SLOT_BG);
-        slotBorderPaint.setColor(COLOR_SLOT_BORDER);
-        slotBorderPaint.setStyle(Paint.Style.STROKE);
-        slotBorderPaint.setStrokeWidth(dp(1));
-        chipBgPaint.setColor(COLOR_CHIP_BG);
-        chipBorderPaint.setColor(COLOR_CHIP_BORDER);
-        chipBorderPaint.setStyle(Paint.Style.STROKE);
-        chipBorderPaint.setStrokeWidth(dp(1));
-        textPaint.setColor(COLOR_TEXT);
-        textPaint.setTextSize(dp(11));
-        textPaint.setTypeface(Typeface.DEFAULT_BOLD);
-        mutedPaint.setColor(COLOR_MUTED);
-        mutedPaint.setTextSize(dp(9));
-        overlayDimPaint.setColor(0x60000000);
+        pDim.setColor(C_DIM);
 
-        addControlPanel(); // slot rects are built in onLayout() once we have real dimensions
+        pSel.setStyle(Paint.Style.STROKE);
+        pSel.setStrokeWidth(dp(2));
+        pSel.setColor(C_SEL);
+        pSel.setPathEffect(new DashPathEffect(new float[]{dp(8), dp(4)}, 0));
+
+        pHandle.setColor(C_HANDLE);
+
+        pRot.setColor(C_ROT);
+
+        pLine.setColor(C_ROT);
+        pLine.setStrokeWidth(dp(1.5f));
+        pLine.setStyle(Paint.Style.STROKE);
+
+        pRadius.setColor(C_RADIUS);
+
+        pSlBg.setColor(0x55FFFFFF);
+        pSlFg.setColor(C_RADIUS);
+
+        pPropBg.setColor(C_PROP_BG);
+
+        pReset.setColor(C_RESET);
+
+        pText.setColor(C_TEXT);
+        pText.setTextSize(dp(11));
+        pText.setTypeface(Typeface.DEFAULT_BOLD);
+        pText.setAntiAlias(true);
+
+        pHLabel.setColor(0xFF17212B);
+        pHLabel.setTextSize(dp(8));
+        pHLabel.setTextAlign(Paint.Align.CENTER);
+        pHLabel.setAntiAlias(true);
+
+        // Load persisted transforms
+        allStates.putAll(ViewTransformState.loadAll(context));
     }
 
-    // ── Slot rect registration (called by host with actual view bounds) ────────
-    /**
-     * Register the screen rect for a named slot so the overlay can draw over it.
-     * Call this from onLayout / onGlobalLayout in LaunchActivity / fragments.
-     */
-    public void registerSlotRect(String slotId, int left, int top, int right, int bottom) {
-        registeredSlots.add(slotId);          // mark as "real" — onLayout won't overwrite
-        slotRects.put(slotId, new RectF(left, top, right, bottom));
-        invalidate();
-    }
+    // ── Touch ─────────────────────────────────────────────────────────────────
 
-    /** Called every time our size changes; fills default slot rects from screen dimensions. */
     @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-        if (changed) rebuildDefaultRects();
+    public boolean onTouchEvent(MotionEvent e) {
+        float x = e.getX(), y = e.getY();
+        switch (e.getAction()) {
+            case MotionEvent.ACTION_DOWN:  return handleDown(x, y);
+            case MotionEvent.ACTION_MOVE:  handleMove(x, y); return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL: handleUp(); return true;
+        }
+        return true; // consume all touches when overlay is visible
     }
 
-    /**
-     * Compute approximate slot positions from screen dimensions.
-     * Slots already pinned via registerSlotRect / setSlotView are skipped.
-     * All measurements use real resource queries for status-bar / nav-bar heights.
-     */
-    private void rebuildDefaultRects() {
-        int W = getWidth();
-        int H = getHeight();
-        if (W == 0 || H == 0) return;
+    private boolean handleDown(float x, float y) {
+        // 1. Reset button (fixed screen coords, not rotated)
+        if (selectedView != null && hReset.contains(x, y)) {
+            doReset(); return true;
+        }
 
-        int statusH    = getSystemBarHeight("status_bar_height",    24);
-        int navH       = getSystemBarHeight("navigation_bar_height", 0);
-        int actionBarH = dp(56);
-        int tabBarH    = dp(56);
-        int inputH     = dp(52);
+        // 2. Handle hit-test — inverse-rotate touch into selection space
+        if (selectedView != null) {
+            float[] loc = inverseRotate(x, y);
+            Mode hit = hitTest(loc[0], loc[1]);
+            if (hit != Mode.NONE) {
+                startDrag(hit, x, y); return true;
+            }
+            // 3. Inside selection body → MOVE
+            if (selRect.contains(loc[0], loc[1])) {
+                startDrag(Mode.MOVE, x, y); return true;
+            }
+            // 4. Outside everything → deselect, maybe select new
+            deselect();
+        }
 
-        int topBarTop  = statusH;
-        int topBarBot  = statusH + actionBarH;
-        int tabBarBot  = H - navH;
-        int tabBarTop  = tabBarBot - tabBarH;
-        int inputTop   = tabBarTop - inputH;
+        // 5. Try to pick a view at touch position
+        View picked = findViewAt(x, y);
+        if (picked != null) {
+            doSelect(picked);
+        }
+        return true;
+    }
 
-        putDefault(LayoutConfig.SLOT_TOPBAR_LEFT,
-                0,         topBarTop, (int)(W * 0.25f), topBarBot);
-        putDefault(LayoutConfig.SLOT_TOPBAR_CENTER,
-                (int)(W * 0.25f), topBarTop, (int)(W * 0.75f), topBarBot);
-        putDefault(LayoutConfig.SLOT_TOPBAR_RIGHT,
-                (int)(W * 0.75f), topBarTop, W, topBarBot);
+    private void handleMove(float x, float y) {
+        if (dragMode == Mode.NONE || selectedView == null || currentState == null) return;
 
-        float sw = W / 5f;
-        putDefault(LayoutConfig.SLOT_BOTTOMBAR_1, 0,          tabBarTop, (int)sw,       tabBarBot);
-        putDefault(LayoutConfig.SLOT_BOTTOMBAR_2, (int)sw,    tabBarTop, (int)(sw*2),   tabBarBot);
-        putDefault(LayoutConfig.SLOT_BOTTOMBAR_3, (int)(sw*2),tabBarTop, (int)(sw*3),   tabBarBot);
-        putDefault(LayoutConfig.SLOT_BOTTOMBAR_4, (int)(sw*3),tabBarTop, (int)(sw*4),   tabBarBot);
-        putDefault(LayoutConfig.SLOT_BOTTOMBAR_5, (int)(sw*4),tabBarTop, W,             tabBarBot);
+        float dx = x - touchDownX, dy = y - touchDownY;
 
-        putDefault(LayoutConfig.SLOT_CHATINPUT_LEFT,
-                0,         inputTop, (int)(W * 0.20f), tabBarTop);
-        putDefault(LayoutConfig.SLOT_CHATINPUT_CENTER,
-                (int)(W * 0.20f), inputTop, (int)(W * 0.80f), tabBarTop);
-        putDefault(LayoutConfig.SLOT_CHATINPUT_RIGHT,
-                (int)(W * 0.80f), inputTop, W, tabBarTop);
+        switch (dragMode) {
+            case MOVE:
+                currentState.tx = stateAtDown.tx + dx;
+                currentState.ty = stateAtDown.ty + dy;
+                selectedView.setTranslationX(currentState.tx);
+                selectedView.setTranslationY(currentState.ty);
+                break;
 
-        putDefault(LayoutConfig.SLOT_SIDEBAR_MAIN,
-                0, topBarBot, dp(220), tabBarTop);
+            case RESIZE_TL: case RESIZE_TR: case RESIZE_BL: case RESIZE_BR: {
+                float d0 = dist(touchDownX, touchDownY, centerAtDown_X, centerAtDown_Y);
+                float d1 = dist(x, y, centerAtDown_X, centerAtDown_Y);
+                float ratio = (d0 > 1f) ? (d1 / d0) : 1f;
+                currentState.scaleX = Math.max(0.05f, stateAtDown.scaleX * ratio);
+                currentState.scaleY = Math.max(0.05f, stateAtDown.scaleY * ratio);
+                selectedView.setScaleX(currentState.scaleX);
+                selectedView.setScaleY(currentState.scaleY);
+                break;
+            }
 
+            case ROTATE: {
+                float a0 = angleDeg(touchDownX - centerAtDown_X, touchDownY - centerAtDown_Y);
+                float a1 = angleDeg(x - centerAtDown_X, y - centerAtDown_Y);
+                currentState.rotation = stateAtDown.rotation + (a1 - a0);
+                selectedView.setRotation(currentState.rotation);
+                break;
+            }
+
+            case RADIUS: {
+                float maxR = Math.min(selectedView.getWidth(), selectedView.getHeight()) / 2f;
+                if (maxR <= 0) break;
+                float slW = hSlider.width();
+                float fraction = slW > 0
+                    ? Math.max(0f, Math.min(1f, (x - hSlider.left) / slW))
+                    : 0f;
+                currentState.cornerRadius = fraction * maxR;
+                currentState.applyCornerRadius(selectedView);
+                break;
+            }
+        }
         invalidate();
     }
 
-    /** Only writes the rect if this slot wasn't explicitly registered via setSlotView. */
-    private void putDefault(String slotId, int l, int t, int r, int b) {
-        if (!registeredSlots.contains(slotId)) {
-            slotRects.put(slotId, new RectF(l, t, r, b));
+    private void handleUp() {
+        dragMode = Mode.NONE;
+        ViewTransformState.saveAll(getContext(), allStates);
+    }
+
+    private void startDrag(Mode mode, float x, float y) {
+        dragMode = mode;
+        touchDownX = x; touchDownY = y;
+        centerAtDown_X = selRect.centerX();
+        centerAtDown_Y = selRect.centerY();
+        stateAtDown = ViewTransformState.copy(currentState);
+    }
+
+    // ── Hit-testing (in UN-rotated / inverse-rotated space) ───────────────────
+
+    private Mode hitTest(float lx, float ly) {
+        if (hRot.contains(lx, ly))  return Mode.ROTATE;
+        if (hTL.contains(lx, ly))   return Mode.RESIZE_TL;
+        if (hTR.contains(lx, ly))   return Mode.RESIZE_TR;
+        if (hBL.contains(lx, ly))   return Mode.RESIZE_BL;
+        if (hBR.contains(lx, ly))   return Mode.RESIZE_BR;
+        // Slider: check proximity (fat touch target)
+        if (lx >= hSlider.left && lx <= hSlider.right
+                && Math.abs(ly - hSlider.centerY()) <= dp(18)) return Mode.RADIUS;
+        return Mode.NONE;
+    }
+
+    // ── Selection / deselection ───────────────────────────────────────────────
+
+    private void doSelect(View v) {
+        selectedView = v;
+        selectedId   = makeId(v);
+        // Restore or create state
+        currentState = allStates.get(selectedId);
+        if (currentState == null) {
+            currentState = new ViewTransformState();
+            // Seed with whatever transforms are already on the view
+            currentState.tx       = v.getTranslationX();
+            currentState.ty       = v.getTranslationY();
+            currentState.scaleX   = v.getScaleX();
+            currentState.scaleY   = v.getScaleY();
+            currentState.rotation = v.getRotation();
+            allStates.put(selectedId, currentState);
         }
+        dragMode = Mode.NONE;
+        invalidate();
     }
 
-    /** Reads a system dimen resource (e.g. status_bar_height) with a dp fallback. */
-    private int getSystemBarHeight(String dimenName, int fallbackDp) {
-        try {
-            android.content.res.Resources res = getContext().getResources();
-            int id = res.getIdentifier(dimenName, "dimen", "android");
-            if (id > 0) return res.getDimensionPixelSize(id);
-        } catch (Exception ignored) {}
-        return dp(fallbackDp);
+    private void deselect() {
+        selectedView = null;
+        selectedId   = null;
+        currentState = null;
+        dragMode     = Mode.NONE;
+        invalidate();
     }
 
-    /**
-     * Call from the host after layout to auto-compute slot positions from
-     * real view references.
-     *
-     * Example:
-     *   overlay.setSlotView(LayoutConfig.SLOT_TOPBAR_LEFT, myActionBarLeftGroup);
-     */
-    public void setSlotView(String slotId, View view) {
-        if (view == null) return;
-        int[] loc = new int[2];
-        view.getLocationOnScreen(loc);
-        int[] myLoc = new int[2];
-        getLocationOnScreen(myLoc);
-        registerSlotRect(
-            slotId,
-            loc[0] - myLoc[0],
-            loc[1] - myLoc[1],
-            loc[0] + view.getWidth() - myLoc[0],
-            loc[1] + view.getHeight() - myLoc[1]
-        );
+    private void doReset() {
+        if (selectedView == null || currentState == null) return;
+        currentState.tx = 0; currentState.ty = 0;
+        currentState.scaleX = 1; currentState.scaleY = 1;
+        currentState.rotation = 0; currentState.cornerRadius = 0;
+        currentState.applyTo(selectedView);
+        ViewTransformState.saveAll(getContext(), allStates);
+        invalidate();
     }
 
-    // ── Control panel (selected chip controls) ────────────────────────────────
-    private LinearLayout controlPanel;
-    private TextView      ctrlLabel;
-    private TextView      ctrlToggleVisible;
-    private TextView      ctrlTogglePin;
-    private TextView      ctrlRemove;
+    // ── View finder ───────────────────────────────────────────────────────────
 
-    private void addControlPanel() {
-        controlPanel = new LinearLayout(getContext());
-        controlPanel.setOrientation(LinearLayout.HORIZONTAL);
-        controlPanel.setGravity(Gravity.CENTER_VERTICAL);
-        controlPanel.setBackgroundColor(COLOR_PANEL_BG);
-        controlPanel.setPadding(dp(12), dp(8), dp(12), dp(8));
-        controlPanel.setVisibility(View.GONE);
+    private View findViewAt(float ox, float oy) {
+        if (!(getParent() instanceof ViewGroup)) return null;
+        int[] myLoc = new int[2]; getLocationOnScreen(myLoc);
+        int sx = (int)(ox + myLoc[0]), sy = (int)(oy + myLoc[1]);
+        return searchAt((ViewGroup) getParent(), sx, sy);
+    }
 
-        // Label
-        ctrlLabel = makeTextView(12, true, COLOR_TEXT);
-        ctrlLabel.setMaxWidth(dp(100));
-        ctrlLabel.setEllipsize(TextUtils.TruncateAt.END);
-        ctrlLabel.setSingleLine(true);
-        controlPanel.addView(ctrlLabel, linearParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+    private View searchAt(ViewGroup group, int sx, int sy) {
+        for (int i = group.getChildCount() - 1; i >= 0; i--) {
+            View child = group.getChildAt(i);
+            if (!canSelect(child)) continue;
 
-        controlPanel.addView(makeDivider(), linearParams(dp(1), dp(18), 0f));
+            int[] loc = new int[2]; child.getLocationOnScreen(loc);
+            if (sx < loc[0] || sx >= loc[0] + child.getWidth() ||
+                sy < loc[1] || sy >= loc[1] + child.getHeight()) continue;
 
-        // Toggle visibility
-        ctrlToggleVisible = makeControlButton("👁 Show/Hide");
-        ctrlToggleVisible.setOnClickListener(v -> {
-            if (selectedId != null) {
-                mgr.toggleVisibility(selectedId);
-                refreshControlPanel();
-                invalidate();
+            // Try going deeper first (prefer leaf views)
+            if (child instanceof ViewGroup) {
+                View deeper = searchAt((ViewGroup) child, sx, sy);
+                if (deeper != null) return deeper;
             }
-        });
-        controlPanel.addView(ctrlToggleVisible, linearParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0f));
-
-        // Toggle pin
-        ctrlTogglePin = makeControlButton("📌 Pin");
-        ctrlTogglePin.setOnClickListener(v -> {
-            if (selectedId != null) {
-                mgr.togglePin(selectedId);
-                refreshControlPanel();
-                invalidate();
+            // Accept this view if it's big enough to be meaningful
+            if (child.getWidth() >= dp(MIN_VIEW_DP) && child.getHeight() >= dp(MIN_VIEW_DP)) {
+                return child;
             }
-        });
-        controlPanel.addView(ctrlTogglePin, linearParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0f));
-
-        // Remove
-        ctrlRemove = makeControlButton("🗑 Remove");
-        ctrlRemove.setTextColor(0xFFE53935);
-        ctrlRemove.setOnClickListener(v -> {
-            if (selectedId != null) {
-                String slotId = mgr.getConfig().findSlotForInstance(selectedId);
-                if (slotId != null) {
-                    LayoutConfig cfg = mgr.getConfig();
-                    List<LayoutConfig.ComponentInstance> items = new ArrayList<>(cfg.getSlot(slotId));
-                    items.removeIf(i -> i.instanceId.equals(selectedId));
-                    cfg.setSlot(slotId, items);
-                    mgr.applyConfig(cfg);
-                }
-                selectedId = null;
-                controlPanel.setVisibility(View.GONE);
-                invalidate();
-            }
-        });
-        controlPanel.addView(ctrlRemove, linearParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0f));
-
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(PANEL_H));
-        lp.gravity = Gravity.BOTTOM;
-        addView(controlPanel, lp);
+        }
+        return null;
     }
 
-    private void refreshControlPanel() {
-        if (selectedId == null) { controlPanel.setVisibility(View.GONE); return; }
-        LayoutConfig.ComponentInstance inst = mgr.getConfig().findInstance(selectedId);
-        if (inst == null) { controlPanel.setVisibility(View.GONE); return; }
+    private boolean canSelect(View v) {
+        if (v == this) return false;
+        if (v.getVisibility() != VISIBLE) return false;
+        String n = v.getClass().getSimpleName();
+        // Skip our own overlay views and Telegram's fullscreen overlays
+        if (n.contains("EditMode") || n.contains("Fireworks") ||
+            n.contains("BottomSheetTabsOverlay")) return false;
+        return true;
+    }
 
-        controlPanel.setVisibility(View.VISIBLE);
-        ctrlLabel.setText(componentLabel(inst.componentId));
-        ctrlToggleVisible.setText(inst.visible ? "🙈 Hide" : "👁 Show");
-        ctrlTogglePin.setText(inst.pinned ? "📌 Unpin" : "📌 Pin");
+    // ── View ID ───────────────────────────────────────────────────────────────
+
+    private String makeId(View view) {
+        StringBuilder sb = new StringBuilder(view.getClass().getSimpleName());
+        View v = view;
+        int depth = 0;
+        while (v.getParent() instanceof ViewGroup && depth < 10) {
+            ViewGroup p = (ViewGroup) v.getParent();
+            for (int i = 0; i < p.getChildCount(); i++) {
+                if (p.getChildAt(i) == v) { sb.append("_").append(i); break; }
+            }
+            v = (View) v.getParent();
+            depth++;
+        }
+        return sb.toString();
     }
 
     // ── Drawing ───────────────────────────────────────────────────────────────
+
     @Override
     protected void dispatchDraw(Canvas canvas) {
-        if (alpha <= 0f) return;
+        if (fade <= 0f) return;
 
-        // Dim the underlying UI slightly
-        overlayDimPaint.setAlpha((int) (0x60 * alpha));
-        canvas.drawRect(0, 0, getWidth(), getHeight(), overlayDimPaint);
+        // Semi-transparent dim over entire screen
+        pDim.setAlpha((int)(0x50 * fade));
+        canvas.drawRect(0, 0, getWidth(), getHeight(), pDim);
 
-        // Draw each registered slot region
-        for (Map.Entry<String, RectF> entry : slotRects.entrySet()) {
-            drawSlot(canvas, entry.getKey(), entry.getValue());
-        }
+        if (selectedView != null && isAttached(selectedView)) {
+            refreshSelRect();
+            refreshHandles();
 
-        super.dispatchDraw(canvas); // draw control panel on top
-    }
+            float cx  = selRect.centerX();
+            float cy  = selRect.centerY();
+            float rot = selectedView.getRotation();
 
-    private void drawSlot(Canvas canvas, String slotId, RectF r) {
-        boolean isHover = slotId.equals(hoverSlotId);
-        float corner = dp(10);
+            canvas.save();
+            canvas.rotate(rot, cx, cy);
 
-        // Background
-        slotBgPaint.setColor(isHover ? COLOR_SLOT_HOVER : COLOR_SLOT_BG);
-        slotBgPaint.setAlpha((int) (slotBgPaint.getAlpha() * alpha));
-        canvas.drawRoundRect(r, corner, corner, slotBgPaint);
+            // Dashed selection border
+            pSel.setAlpha((int)(0xFF * fade));
+            canvas.drawRect(selRect, pSel);
 
-        // Border
-        slotBorderPaint.setAlpha((int) (0x88 * alpha));
-        if (isHover) slotBorderPaint.setColor(0xFFF59E0B);
-        else         slotBorderPaint.setColor(COLOR_SLOT_BORDER);
-        canvas.drawRoundRect(r, corner, corner, slotBorderPaint);
+            // Stem from top-center to rotation handle
+            pLine.setAlpha((int)(0xCC * fade));
+            canvas.drawLine(cx, selRect.top, cx, selRect.top - dp(ROT_OFFSET), pLine);
 
-        // Slot label
-        String label = slotLabel(slotId);
-        mutedPaint.setAlpha((int) (0xCC * alpha));
-        canvas.drawText(label, r.left + dp(SLOT_PADDING), r.top + dp(SLOT_PADDING) + mutedPaint.getTextSize(), mutedPaint);
+            // Rotation handle (amber circle)
+            pRot.setAlpha((int)(0xFF * fade));
+            canvas.drawCircle(hRot.centerX(), hRot.centerY(), dp(HANDLE_R), pRot);
+            pHLabel.setColor(0xFF17212B);
+            canvas.drawText("↻", hRot.centerX(), hRot.centerY() + dp(4), pHLabel);
 
-        // Component chips
-        List<LayoutConfig.ComponentInstance> items = mgr.getConfig().getSlot(slotId);
-        float chipX = r.left + dp(SLOT_PADDING);
-        float chipY = r.top + dp(SLOT_PADDING) + mutedPaint.getTextSize() + dp(4);
-        float chipH  = dp(CHIP_H);
+            // Corner resize handles (white squares)
+            pHandle.setAlpha((int)(0xFF * fade));
+            float hr = dp(4);
+            canvas.drawRoundRect(hTL, hr, hr, pHandle);
+            canvas.drawRoundRect(hTR, hr, hr, pHandle);
+            canvas.drawRoundRect(hBL, hr, hr, pHandle);
+            canvas.drawRoundRect(hBR, hr, hr, pHandle);
+            pHLabel.setColor(0xFF17212B);
+            drawLabel(canvas, hTL, "↔"); drawLabel(canvas, hTR, "↔");
+            drawLabel(canvas, hBL, "↔"); drawLabel(canvas, hBR, "↔");
 
-        for (int i = 0; i < items.size(); i++) {
-            LayoutConfig.ComponentInstance inst = items.get(i);
-            String chipText = "⠿ " + componentLabel(inst.componentId);
-            float chipW = textPaint.measureText(chipText) + dp(CHIP_PADDING * 2);
-
-            // Wrap if needed
-            if (chipX + chipW > r.right - dp(SLOT_PADDING)) {
-                chipX = r.left + dp(SLOT_PADDING);
-                chipY += chipH + dp(4);
+            // Corner radius slider (green) below selection
+            float maxR = Math.min(selectedView.getWidth(), selectedView.getHeight()) / 2f;
+            float fill = (maxR > 0 && currentState != null)
+                ? Math.max(0f, Math.min(1f, currentState.cornerRadius / maxR)) : 0f;
+            float sr = dp(3);
+            pSlBg.setAlpha((int)(0xAA * fade));
+            canvas.drawRoundRect(hSlider, sr, sr, pSlBg);
+            if (fill > 0f) {
+                pSlFg.setAlpha((int)(0xFF * fade));
+                RectF fr = new RectF(hSlider.left, hSlider.top,
+                                     hSlider.left + hSlider.width() * fill, hSlider.bottom);
+                canvas.drawRoundRect(fr, sr, sr, pSlFg);
             }
+            float thumbX = hSlider.left + hSlider.width() * fill;
+            pRadius.setAlpha((int)(0xFF * fade));
+            canvas.drawCircle(thumbX, hSlider.centerY(), dp(8), pRadius);
 
-            rect.set(chipX, chipY, chipX + chipW, chipY + chipH);
+            // Slider label
+            pHLabel.setColor(0xFFE8E8E8);
+            pHLabel.setTextSize(dp(9));
+            canvas.drawText("⬤ corner radius", hSlider.centerX(),
+                hSlider.top - dp(5), pHLabel);
+            pHLabel.setTextSize(dp(8));
 
-            // Chip background
-            boolean selected = inst.instanceId.equals(selectedId);
-            boolean dragged  = inst.instanceId.equals(dragId);
-            if (dragged) {
-                chipBgPaint.setColor(0x80F59E0B);
-            } else if (selected) {
-                chipBgPaint.setColor(0xFF1E2C3A);
-                chipBorderPaint.setColor(COLOR_CHIP_SELECTED);
-            } else if (inst.pinned) {
-                chipBgPaint.setColor(0xFF1E2C3A);
-                chipBorderPaint.setColor(COLOR_CHIP_PINNED);
-            } else {
-                chipBgPaint.setColor(COLOR_CHIP_BG);
-                chipBorderPaint.setColor(COLOR_CHIP_BORDER);
-            }
-            chipBgPaint.setAlpha(dragged ? 128 : (int) (0xCC * alpha));
-            canvas.drawRoundRect(rect, dp(6), dp(6), chipBgPaint);
-            chipBorderPaint.setAlpha((int) (0xFF * alpha));
-            canvas.drawRoundRect(rect, dp(6), dp(6), chipBorderPaint);
+            canvas.restore();
 
-            // Chip text
-            textPaint.setColor(inst.visible ? COLOR_TEXT : COLOR_MUTED);
-            textPaint.setAlpha(dragged ? 80 : (int) (0xFF * alpha));
-            float textY = chipY + (chipH - textPaint.getTextSize()) / 2f + textPaint.getTextSize();
-            canvas.drawText(chipText, chipX + dp(CHIP_PADDING), textY, textPaint);
-
-            // Hidden badge
-            if (!inst.visible) {
-                mutedPaint.setAlpha((int) (0xAA * alpha));
-                canvas.drawText("hidden", rect.right - dp(30), rect.bottom - dp(3), mutedPaint);
-            }
-            // Pin badge
-            if (inst.pinned) {
-                mutedPaint.setAlpha((int) (0xAA * alpha));
-                canvas.drawText("📌", rect.right - dp(14), rect.top + dp(10), mutedPaint);
-            }
-
-            chipX += chipW + dp(6);
+            // Property bar (screen-fixed, not rotated)
+            drawPropBar(canvas);
         }
 
-        // Empty slot hint
-        if (items.isEmpty()) {
-            mutedPaint.setAlpha((int) (0x66 * alpha));
-            canvas.drawText("+ drop here", r.left + dp(SLOT_PADDING), r.centerY() + mutedPaint.getTextSize() / 2f, mutedPaint);
+        super.dispatchDraw(canvas);
+    }
+
+    private void drawLabel(Canvas canvas, RectF h, String txt) {
+        canvas.drawText(txt, h.centerX(), h.centerY() + dp(3), pHLabel);
+    }
+
+    private void drawPropBar(Canvas canvas) {
+        pPropBg.setAlpha((int)(0xF0 * fade));
+        canvas.drawRect(propBar, pPropBg);
+
+        // Info text
+        String info = "";
+        if (currentState != null) {
+            info = String.format("Scale %.0f%% · Rot %.0f° · Radius %.0fpx",
+                currentState.scaleX * 100f,
+                currentState.rotation,
+                currentState.cornerRadius);
         }
+        pText.setTextAlign(Paint.Align.LEFT);
+        pText.setAlpha((int)(0xFF * fade));
+        canvas.drawText(info, propBar.left + dp(12),
+            propBar.centerY() + pText.getTextSize() / 3f, pText);
+
+        // Reset button
+        pReset.setAlpha((int)(0xFF * fade));
+        canvas.drawRoundRect(hReset, dp(6), dp(6), pReset);
+        pText.setTextAlign(Paint.Align.CENTER);
+        pText.setColor(0xFFFFFFFF);
+        canvas.drawText("✕ Reset", hReset.centerX(),
+            hReset.centerY() + pText.getTextSize() / 3f, pText);
+        pText.setColor(C_TEXT);
     }
 
-    // ── Touch / drag handling ─────────────────────────────────────────────────
-    @Override
-    public boolean onTouchEvent(MotionEvent event) {
-        float x = event.getX(), y = event.getY();
+    // ── Geometry helpers ──────────────────────────────────────────────────────
 
-        switch (event.getAction()) {
-            case MotionEvent.ACTION_DOWN:
-                touchStartX = x;
-                touchStartY = y;
-                touchedInstanceId = findChipAt(x, y);
-                if (touchedInstanceId != null) {
-                    postDelayed(longPressRunnable, LONG_PRESS_TIMEOUT_MS);
-                }
-                return true;
+    /** Recompute the visual selection rect from the view's current position + transforms. */
+    private void refreshSelRect() {
+        if (selectedView == null) return;
+        int[] myLoc = new int[2]; getLocationOnScreen(myLoc);
+        int[] vLoc  = new int[2]; selectedView.getLocationOnScreen(vLoc);
 
-            case MotionEvent.ACTION_MOVE:
-                float dx = Math.abs(x - touchStartX);
-                float dy = Math.abs(y - touchStartY);
-                if (dx > dp(8) || dy > dp(8)) {
-                    removeCallbacks(longPressRunnable);
-                    if (touchedInstanceId != null && !touchedInstanceId.equals(dragId)) {
-                        startChipDrag();
-                    }
-                }
-                if (dragId != null) {
-                    hoverSlotId = findSlotAt(x, y);
-                    invalidate();
-                }
-                return true;
-
-            case MotionEvent.ACTION_UP:
-                removeCallbacks(longPressRunnable);
-                if (dragId != null) {
-                    String destSlot = findSlotAt(x, y);
-                    if (destSlot != null) {
-                        int destIdx = estimateDropIndex(destSlot, x, y);
-                        mgr.moveComponent(dragId, destSlot, destIdx);
-                        invalidate();
-                    }
-                    dragId      = null;
-                    hoverSlotId = null;
-                    invalidate();
-                } else if (touchedInstanceId != null) {
-                    // Tap → select
-                    selectedId = touchedInstanceId.equals(selectedId) ? null : touchedInstanceId;
-                    refreshControlPanel();
-                    invalidate();
-                } else {
-                    // Tap on empty space → deselect
-                    selectedId = null;
-                    refreshControlPanel();
-                    invalidate();
-                }
-                touchedInstanceId = null;
-                return true;
-
-            case MotionEvent.ACTION_CANCEL:
-                removeCallbacks(longPressRunnable);
-                dragId = null; hoverSlotId = null; touchedInstanceId = null;
-                invalidate();
-                return true;
-        }
-        return super.onTouchEvent(event);
+        // getLocationOnScreen accounts for translationX/Y but NOT scale.
+        // Pivot is at (width/2, height/2) by default, so the visual center is fixed.
+        float cx = (vLoc[0] - myLoc[0]) + selectedView.getWidth()  / 2f;
+        float cy = (vLoc[1] - myLoc[1]) + selectedView.getHeight() / 2f;
+        float hw = selectedView.getWidth()  * selectedView.getScaleX() / 2f;
+        float hh = selectedView.getHeight() * selectedView.getScaleY() / 2f;
+        selRect.set(cx - hw, cy - hh, cx + hw, cy + hh);
     }
 
-    private void startChipDrag() {
-        if (touchedInstanceId == null) return;
-        LayoutConfig.ComponentInstance inst = mgr.getConfig().findInstance(touchedInstanceId);
-        if (inst == null || inst.pinned) { touchedInstanceId = null; return; }
-        dragId = touchedInstanceId;
-        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-        invalidate();
+    private void refreshHandles() {
+        float hs = dp(HANDLE_R);
+        float l = selRect.left, r = selRect.right;
+        float t = selRect.top,  b = selRect.bottom;
+        float cx = selRect.centerX();
+
+        hTL.set(l - hs, t - hs, l + hs, t + hs);
+        hTR.set(r - hs, t - hs, r + hs, t + hs);
+        hBL.set(l - hs, b - hs, l + hs, b + hs);
+        hBR.set(r - hs, b - hs, r + hs, b + hs);
+        hRot.set(cx - hs, t - dp(ROT_OFFSET) - hs, cx + hs, t - dp(ROT_OFFSET) + hs);
+
+        float slY = b + dp(14);
+        hSlider.set(l + dp(20), slY, r - dp(20), slY + dp(6));
+
+        // Property bar — fixed at screen bottom
+        propBar.set(0, getHeight() - dp(PROP_H), getWidth(), getHeight());
+        hReset.set(propBar.right - dp(80), propBar.top + dp(10),
+                   propBar.right - dp(8),  propBar.bottom - dp(10));
     }
 
-    // ── Hit testing ───────────────────────────────────────────────────────────
-    /** Returns the instanceId of the chip at (x, y), or null. */
-    private String findChipAt(float x, float y) {
-        for (Map.Entry<String, RectF> entry : slotRects.entrySet()) {
-            String slotId = entry.getKey();
-            RectF  r      = entry.getValue();
-            if (!r.contains(x, y)) continue;
-
-            List<LayoutConfig.ComponentInstance> items = mgr.getConfig().getSlot(slotId);
-            float chipX = r.left + dp(SLOT_PADDING);
-            float chipY = r.top + dp(SLOT_PADDING) + mutedPaint.getTextSize() + dp(4);
-            float chipH = dp(CHIP_H);
-
-            for (LayoutConfig.ComponentInstance inst : items) {
-                String chipText = "⠿ " + componentLabel(inst.componentId);
-                float  chipW    = textPaint.measureText(chipText) + dp(CHIP_PADDING * 2);
-                if (chipX + chipW > r.right - dp(SLOT_PADDING)) {
-                    chipX = r.left + dp(SLOT_PADDING);
-                    chipY += chipH + dp(4);
-                }
-                rect.set(chipX, chipY, chipX + chipW, chipY + chipH);
-                if (rect.contains(x, y)) return inst.instanceId;
-                chipX += chipW + dp(6);
-            }
-        }
-        return null;
+    /** Inverse-rotate a touch point back into the un-rotated selection space. */
+    private float[] inverseRotate(float x, float y) {
+        float rot = (selectedView != null) ? selectedView.getRotation() : 0f;
+        float cx = selRect.centerX(), cy = selRect.centerY();
+        double angle = Math.toRadians(-rot);
+        float cos = (float) Math.cos(angle), sin = (float) Math.sin(angle);
+        float dx = x - cx, dy = y - cy;
+        return new float[]{ dx * cos - dy * sin + cx, dx * sin + dy * cos + cy };
     }
 
-    /** Returns the slotId whose rect contains (x, y), or null. */
-    private String findSlotAt(float x, float y) {
-        for (Map.Entry<String, RectF> entry : slotRects.entrySet()) {
-            if (entry.getValue().contains(x, y)) return entry.getKey();
-        }
-        return null;
+    private static float dist(float x1, float y1, float x2, float y2) {
+        float dx = x1 - x2, dy = y1 - y2;
+        return (float) Math.sqrt(dx * dx + dy * dy);
     }
 
-    /** Estimate drop position index within a slot based on x position. */
-    private int estimateDropIndex(String slotId, float x, float y) {
-        List<LayoutConfig.ComponentInstance> items = mgr.getConfig().getSlot(slotId);
-        if (items.isEmpty()) return 0;
-        RectF r = slotRects.get(slotId);
-        if (r == null) return items.size();
-        float fraction = (x - r.left) / r.width();
-        return Math.min((int) (fraction * items.size() + 0.5f), items.size());
+    private static float angleDeg(float dx, float dy) {
+        return (float) Math.toDegrees(Math.atan2(dy, dx));
+    }
+
+    private static boolean isAttached(View v) {
+        return v.getWindowToken() != null;
     }
 
     // ── EditModeManager.Listener ──────────────────────────────────────────────
+
     @Override
     public void onEditModeChanged(boolean editMode) {
         if (editMode) {
-            setVisibility(View.VISIBLE);
-            animateAlpha(0f, 1f);
+            setVisibility(VISIBLE);
+            animateFade(0f, 1f);
         } else {
-            animateAlpha(1f, 0f, () -> {
-                setVisibility(View.GONE);
-                selectedId = null;
-                controlPanel.setVisibility(View.GONE);
-            });
+            if (!allStates.isEmpty()) ViewTransformState.saveAll(getContext(), allStates);
+            deselect();
+            animateFade(1f, 0f);
+            postDelayed(() -> setVisibility(GONE), 220);
         }
     }
 
     @Override
     public void onLayoutChanged(LayoutConfig config) {
-        invalidate();
-        refreshControlPanel();
+        // Not needed for transform-based editor
     }
 
-    // ── Alpha animation ───────────────────────────────────────────────────────
-    private void animateAlpha(float from, float to) {
-        animateAlpha(from, to, null);
-    }
-
-    private void animateAlpha(float from, float to, Runnable onEnd) {
+    private void animateFade(float from, float to) {
         ValueAnimator anim = ValueAnimator.ofFloat(from, to);
         anim.setDuration(200);
-        anim.addUpdateListener(a -> { alpha = (float) a.getAnimatedValue(); invalidate(); });
-        if (onEnd != null) anim.addListener(new AnimatorListenerAdapter() {
-            @Override public void onAnimationEnd(Animator a) { onEnd.run(); }
-        });
+        anim.addUpdateListener(a -> { fade = (float) a.getAnimatedValue(); invalidate(); });
         anim.start();
-    }
-
-    // ── Labels ────────────────────────────────────────────────────────────────
-    private static String slotLabel(String slotId) {
-        switch (slotId) {
-            case LayoutConfig.SLOT_TOPBAR_LEFT:      return "Top Bar · Left";
-            case LayoutConfig.SLOT_TOPBAR_CENTER:    return "Top Bar · Center";
-            case LayoutConfig.SLOT_TOPBAR_RIGHT:     return "Top Bar · Right";
-            case LayoutConfig.SLOT_BOTTOMBAR_1:      return "Bottom · Slot 1";
-            case LayoutConfig.SLOT_BOTTOMBAR_2:      return "Bottom · Slot 2";
-            case LayoutConfig.SLOT_BOTTOMBAR_3:      return "Bottom · Slot 3";
-            case LayoutConfig.SLOT_BOTTOMBAR_4:      return "Bottom · Slot 4";
-            case LayoutConfig.SLOT_BOTTOMBAR_5:      return "Bottom · Slot 5";
-            case LayoutConfig.SLOT_CHATINPUT_LEFT:   return "Input · Left";
-            case LayoutConfig.SLOT_CHATINPUT_CENTER: return "Input · Center";
-            case LayoutConfig.SLOT_CHATINPUT_RIGHT:  return "Input · Right";
-            case LayoutConfig.SLOT_SIDEBAR_MAIN:     return "Sidebar";
-            default:                                 return slotId;
-        }
-    }
-
-    private static String componentLabel(String compId) {
-        switch (compId) {
-            case LayoutConfig.COMP_BACK_BUTTON:   return "Back";
-            case LayoutConfig.COMP_SEARCH:        return "Search";
-            case LayoutConfig.COMP_MENU:          return "Menu";
-            case LayoutConfig.COMP_MORE_OPTIONS:  return "More";
-            case LayoutConfig.COMP_VOICE_CALL:    return "Call";
-            case LayoutConfig.COMP_VIDEO_CALL:    return "Video";
-            case LayoutConfig.COMP_NAV_CHATS:     return "Chats";
-            case LayoutConfig.COMP_NAV_CONTACTS:  return "Contacts";
-            case LayoutConfig.COMP_NAV_CALLS:     return "Calls";
-            case LayoutConfig.COMP_NAV_SETTINGS:  return "Settings";
-            case LayoutConfig.COMP_NAV_PROFILE:   return "Profile";
-            case LayoutConfig.COMP_EMOJI:         return "Emoji";
-            case LayoutConfig.COMP_ATTACHMENT:    return "Attach";
-            case LayoutConfig.COMP_CAMERA:        return "Camera";
-            case LayoutConfig.COMP_VOICE_MSG:     return "Voice";
-            case LayoutConfig.COMP_SEND:          return "Send";
-            case LayoutConfig.COMP_BOT:           return "Bot";
-            case LayoutConfig.COMP_SCHEDULE:      return "Schedule";
-            default:                              return compId;
-        }
-    }
-
-    // ── View helpers ──────────────────────────────────────────────────────────
-    private TextView makeTextView(int textSizeDp, boolean bold, int color) {
-        TextView tv = new TextView(getContext());
-        tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, textSizeDp);
-        tv.setTextColor(color);
-        if (bold) tv.setTypeface(Typeface.DEFAULT_BOLD);
-        return tv;
-    }
-
-    private TextView makeControlButton(String text) {
-        TextView tv = makeTextView(11, false, COLOR_TEXT);
-        tv.setText(text);
-        tv.setPadding(dp(8), dp(4), dp(8), dp(4));
-        tv.setBackground(makeRoundedBg(0x22FFFFFF, dp(6)));
-        return tv;
-    }
-
-    private static android.graphics.drawable.Drawable makeRoundedBg(int color, float radius) {
-        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(radius);
-        return d;
-    }
-
-    private View makeDivider() {
-        View v = new View(getContext());
-        v.setBackgroundColor(0x33FFFFFF);
-        return v;
-    }
-
-    private static LinearLayout.LayoutParams linearParams(int w, int h, float weight) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h, weight);
-        lp.setMarginStart(dp(6));
-        return lp;
     }
 
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         mgr.removeListener(this);
-        removeCallbacks(longPressRunnable);
     }
 }
