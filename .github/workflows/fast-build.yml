@@ -1,10 +1,5 @@
 name: Fast Build (arm64 test APK)
 
-# Manual-only: Go to Actions → "Fast Build (arm64 test APK)" → Run workflow
-# Builds arm64-v8a only — covers every modern Android phone.
-# Skips x86 / x86_64 / armeabi-v7a → native compile is ~4x faster.
-# Use this for quick iteration; use build.yml for release-ready universal APKs.
-
 on:
   workflow_dispatch:
 
@@ -48,8 +43,6 @@ jobs:
           key: gradle-caches-${{ runner.os }}-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-caches-${{ runner.os }}-
 
-      # arm64-only native cache — separate key from the full-ABI cache so
-      # the two workflows don't clobber each other's .so files.
       - name: Cache arm64 native build outputs
         uses: actions/cache@v4
         with:
@@ -73,36 +66,60 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
-      # Build arm64-v8a only.
-      # --no-build-cache forces every task to run and write output files to disk.
-      # Without this, Gradle may mark tasks UP-TO-DATE from a previous full-ABI
-      # run and skip writing the APK, leaving the output directory empty.
       - name: Build arm64 debug APK
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           ./gradlew :TMessagesProj_App:assembleAfatDebug \
             --no-daemon \
-            --parallel \
             --no-build-cache \
             -Dorg.gradle.jvmargs="-Xmx6g -XX:+UseParallelGC" \
             -Pandroid.useAndroidX=true \
-            -Pandroid.injected.build.abi=arm64-v8a
+            -Pandroid.injected.build.abi=arm64-v8a \
+            2>&1 | tee /tmp/gradle-build.log
+          # Print the last line that mentions .apk
+          grep -i "\.apk" /tmp/gradle-build.log | tail -20 || true
 
-      # Show every APK in the workspace so we always know the real output path
-      - name: Find all APKs in workspace
+      # Absolute brute-force search — scans the entire runner filesystem
+      # so we can see exactly where Gradle wrote the APK regardless of path
+      - name: Locate APK (full filesystem scan)
         if: always()
         run: |
-          echo "=== All .apk files under workspace ==="
-          find . -name "*.apk" 2>/dev/null | sort || echo "(no .apk files found)"
+          echo "=== Searching for *.apk everywhere ==="
+          find /home/runner/work /tmp -name "*.apk" 2>/dev/null | sort || echo "(none found in work+tmp)"
           echo ""
-          echo "=== build/outputs directories ==="
-          find . -type d -name "outputs" 2>/dev/null | sort
+          echo "=== TMessagesProj_App/build tree (apk-related) ==="
+          find TMessagesProj_App/build -type f 2>/dev/null | grep -v "\.class\|\.dex\|\.jar\|intermediates" | sort || echo "(no TMessagesProj_App/build)"
+          echo ""
+          echo "=== build/outputs dirs anywhere ==="
+          find /home/runner/work -type d -name "outputs" 2>/dev/null | sort
+
+      - name: Copy APK to known upload location
+        if: always()
+        run: |
+          mkdir -p /tmp/apk-upload
+          # Try the expected path first
+          EXPECTED="TMessagesProj_App/build/outputs/apk/afat/debug/app.apk"
+          if [ -f "$EXPECTED" ]; then
+            cp "$EXPECTED" /tmp/apk-upload/fluxgram-arm64-debug.apk
+            echo "Found at expected path: $EXPECTED"
+          else
+            # Brute force: grab the first .apk found anywhere in the workspace
+            FOUND=$(find /home/runner/work -name "*.apk" 2>/dev/null | head -1)
+            if [ -n "$FOUND" ]; then
+              cp "$FOUND" /tmp/apk-upload/fluxgram-arm64-debug.apk
+              echo "Found at: $FOUND"
+            else
+              echo "NO APK FOUND ANYWHERE"
+              exit 1
+            fi
+          fi
+          ls -lh /tmp/apk-upload/
 
       - name: Upload arm64 APK
         uses: actions/upload-artifact@v4
         with:
           name: fluxgram-arm64-debug
-          path: "**/build/outputs/apk/**/*.apk"
+          path: /tmp/apk-upload/fluxgram-arm64-debug.apk
           if-no-files-found: error
           retention-days: 7
