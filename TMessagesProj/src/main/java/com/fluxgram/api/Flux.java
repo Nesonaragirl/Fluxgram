@@ -1,5 +1,7 @@
 package com.fluxgram.api;
 
+import org.telegram.messenger.ApplicationLoader;
+
 /**
  * Flux
  *
@@ -15,7 +17,7 @@ package com.fluxgram.api;
  * API unchanged.
  *
  * Usage:
- *   Flux.UI.createButton("Tap me").onClick(data -> ...);
+ *   Flux.UI.createButton("Tap me").onClick(data -> ...).attach();
  *   Flux.Events.on("messagesReceived", data -> ...);
  *   Flux.Settings.get("key");
  *   Flux.Dialogs.alert("Title", "Text");
@@ -35,9 +37,10 @@ public final class Flux {
     }
 
     /**
-     * Wires Flux into the running Telegram client -- currently just attaches
-     * the NotificationCenter -> Flux.Events bridge. Safe to call more than
-     * once; only does real work the first time.
+     * Wires Flux into the running Telegram client -- attaches the
+     * NotificationCenter -> Flux.Events bridge and starts tracking the
+     * foreground Activity so Flux.UI components can attach() themselves.
+     * Safe to call more than once; only does real work the first time.
      *
      * Should be called once core services are up, e.g. from
      * ApplicationLoader.postInitApplication().
@@ -48,5 +51,6 @@ public final class Flux {
         }
         initialized = true;
         FluxNotificationBridge.attach();
+        FluxActivityTracker.attach(ApplicationLoader.applicationLoaderInstance);
     }
 }
