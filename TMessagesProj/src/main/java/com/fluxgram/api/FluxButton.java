@@ -19,8 +19,11 @@ import org.telegram.ui.ActionBar.Theme;
  * Backs Flux.UI.createButton(...). Wraps a plain, real Android TextView
  * styled with Telegram's own Theme drawable helpers so it looks native, but
  * never hands that TextView out through the FluxComponent surface.
+ *
+ * Implements FluxViewProvider so it can also be placed inside a
+ * FluxContainer (Flux.UI.ChatHeader, etc), in addition to its own attach().
  */
-final class FluxButton implements FluxComponent {
+final class FluxButton implements FluxComponent, FluxViewProvider {
 
     private static final String TAG = "Flux.UI.Button";
 
@@ -43,11 +46,8 @@ final class FluxButton implements FluxComponent {
         view.setText(text != null ? text : "");
     }
 
-    /**
-     * Package-private escape hatch for other Flux internals (e.g. a future
-     * container/attach API) that need the real view. Never exposed publicly.
-     */
-    View getView() {
+    @Override
+    public View getView() {
         return view;
     }
 
