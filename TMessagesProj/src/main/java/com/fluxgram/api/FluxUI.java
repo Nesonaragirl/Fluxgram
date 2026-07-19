@@ -1,6 +1,7 @@
 package com.fluxgram.api;
 
 import android.util.Log;
+import android.view.Gravity;
 
 import org.telegram.messenger.ApplicationLoader;
 
@@ -10,15 +11,58 @@ import org.telegram.messenger.ApplicationLoader;
  * Creates real, native Telegram-backed UI elements without exposing
  * Telegram's internal view classes -- callers only ever see FluxComponent.
  *
- * Components are created detached (not yet attached to any screen); a
- * future attach/container API will handle placement. createDialog is the
- * one exception, since a dialog is shown immediately by nature.
+ * Two ways to place a created component:
+ *  - component.attach() -- quick, fire-and-forget corner overlay.
+ *  - Flux.UI.ChatHeader / ChatFooter / ChatMenu / MessageMenu / Sidebar /
+ *    BottomBar / Settings -- named containers for a specific native
+ *    location. Each falls back to the same overlay placement until a real
+ *    screen calls bindHost(...) on it with its actual header/footer/sidebar
+ *    view, at which point components move to true native placement.
+ *
+ * createDialog is the one exception to "created detached", since a dialog
+ * is shown immediately by nature.
  */
 public final class FluxUI {
 
     private static final String TAG = "Flux.UI";
 
+    // Named containers, one per native Telegram UI location. Real screens
+    // opt into true native placement later via bindHost(); until then these
+    // just work via the generic overlay fallback baked into
+    // AbstractFluxContainer.
+    public final FluxContainer ChatHeader = new AbstractFluxContainer(ContainerType.CHAT_HEADER, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+    public final FluxContainer ChatFooter = new AbstractFluxContainer(ContainerType.CHAT_FOOTER, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+    public final FluxContainer ChatMenu = new AbstractFluxContainer(ContainerType.CHAT_MENU, Gravity.TOP | Gravity.END);
+    public final FluxContainer MessageMenu = new AbstractFluxContainer(ContainerType.MESSAGE_MENU, Gravity.CENTER);
+    public final FluxContainer Sidebar = new AbstractFluxContainer(ContainerType.SIDEBAR, Gravity.START | Gravity.CENTER_VERTICAL);
+    public final FluxContainer BottomBar = new AbstractFluxContainer(ContainerType.BOTTOM_BAR, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+    public final FluxContainer Settings = new AbstractFluxContainer(ContainerType.SETTINGS, Gravity.CENTER);
+
+    private final FluxContainer[] allContainers = {
+            ChatHeader, ChatFooter, ChatMenu, MessageMenu, Sidebar, BottomBar, Settings
+    };
+
     FluxUI() {
+    }
+
+    /**
+     * Looks up a container by its ContainerType, for generic/plugin code
+     * that doesn't know the concrete field name.
+     */
+    public FluxContainer getContainer(ContainerType type) {
+        for (FluxContainer container : allContainers) {
+            if (container.getType() == type) {
+                return container;
+            }
+        }
+        throw new IllegalArgumentException("Unknown Flux.UI container type: " + type);
+    }
+
+    /** Removes every component from every container. */
+    public void clearAllContainers() {
+        for (FluxContainer container : allContainers) {
+            container.clear();
+        }
     }
 
     /**
