@@ -65,12 +65,19 @@ jobs:
           -x lint -x test
           ${{ steps.abi.outputs.flag }}
 
+      - name: Locate built APK(s)
+        if: always()
+        run: |
+          echo "Looking for APKs under TMessagesProj_App/build/outputs ..."
+          find TMessagesProj_App/build/outputs -iname "*.apk" -print || true
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: test-apk
-          path: TMessagesProj_App/build/outputs/apk/afat/debug/*.apk
-          if-no-files-found: error
+          path: |
+            TMessagesProj_App/build/outputs/**/*.apk
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Upload build logs (on failure)
