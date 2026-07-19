@@ -68,16 +68,36 @@ jobs:
       - name: Locate built APK(s)
         if: always()
         run: |
-          echo "Looking for APKs under TMessagesProj_App/build/outputs ..."
-          find TMessagesProj_App/build/outputs -iname "*.apk" -print || true
+          echo "=== Searching the ENTIRE workspace for APKs (not just the expected path) ==="
+          find . -iname "*.apk" -print 2>/dev/null || true
+
+          echo
+          echo "=== TMessagesProj_App/build/outputs tree ==="
+          find TMessagesProj_App/build/outputs -maxdepth 6 2>/dev/null || echo "(directory does not exist)"
+
+          echo
+          echo "=== TMessagesProj_App/build/intermediates/apk tree (in case AGP left it here) ==="
+          find TMessagesProj_App/build/intermediates/apk -maxdepth 6 2>/dev/null || echo "(directory does not exist)"
+
+          echo
+          echo "=== APK listing metadata (tells us the path AGP itself recorded) ==="
+          find TMessagesProj_App/build -iname "output-metadata.json" -exec sh -c 'echo "--- {} ---"; cat "{}"' \; 2>/dev/null || true
+
+          echo
+          APK_COUNT=$(find . -iname "*.apk" 2>/dev/null | wc -l)
+          echo "Found $APK_COUNT apk file(s) in the whole workspace."
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "::error::No APK was produced anywhere in the workspace despite a successful Gradle build. See the directory listings and output-metadata.json above for AGP's actual output path."
+            exit 1
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: test-apk
           path: |
-            TMessagesProj_App/build/outputs/**/*.apk
-          if-no-files-found: warn
+            **/*.apk
+          if-no-files-found: error
           retention-days: 14
 
       - name: Upload build logs (on failure)
