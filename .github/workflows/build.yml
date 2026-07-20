@@ -1,4 +1,4 @@
-name: Build APK
+name: Build APK (Debug)
 
 on:
   push:
@@ -42,14 +42,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build standard App (Play variant, release)
-        run: ./gradlew :TMessagesProj_App:assembleAfatRelease --stacktrace
+      - name: Build standard App (Play variant, debug, full/all ABIs, no minify)
+        run: ./gradlew :TMessagesProj_App:assembleAfatDebug --stacktrace
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fluxgram-app-release
+          name: fluxgram-app-debug
           path: TMessagesProj_App/build/outputs/apk/**/*.apk
           if-no-files-found: error
