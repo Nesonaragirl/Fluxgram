@@ -276,7 +276,7 @@ public class ApplicationLoader extends Application {
 
         // Caint API wrapper: attach the NotificationCenter -> Caint.Events
         // bridge now that accounts and NotificationCenter are ready.
-        Flux.init();
+        Caint.init();
     }
 
     public ApplicationLoader() {
