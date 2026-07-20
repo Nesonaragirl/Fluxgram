@@ -32,6 +32,11 @@ import java.util.List;
  *   "Tags": ["Privacy"],
  *   "UpdateUrl": "https://..."
  * }
+ *
+ * Icon accepts any image file placed next to the plugin's manifest --
+ * .png, .jpg/.jpeg, or .ico are all valid, e.g. "Icon": "icon.png",
+ * "Icon": "logo.ico", "Icon": "art.jpg". No format validation is done
+ * here; it's just a relative file path/name as a string.
  */
 public final class PluginManifest {
 
