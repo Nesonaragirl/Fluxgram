@@ -37,6 +37,12 @@ import java.util.List;
  * .png, .jpg/.jpeg, or .ico are all valid, e.g. "Icon": "icon.png",
  * "Icon": "logo.ico", "Icon": "art.jpg". No format validation is done
  * here; it's just a relative file path/name as a string.
+ *
+ * Description is a short, plain-text summary of what the plugin does --
+ * shown next to Name in "My Plugins" and the plugin catalog so a user can
+ * tell what they're installing without opening the plugin. Keep it to a
+ * sentence or two; it's rendered as a single line/snippet, not a full
+ * changelog or README.
  */
 public final class PluginManifest {
 
