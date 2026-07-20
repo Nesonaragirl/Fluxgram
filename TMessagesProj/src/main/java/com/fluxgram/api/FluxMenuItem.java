@@ -10,6 +10,7 @@ import android.widget.FrameLayout;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
+import org.telegram.ui.ActionBar.Theme;
 
 /**
  * FluxMenuItem
@@ -17,6 +18,13 @@ import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
  * Backs Flux.UI.createMenuItem(...). Wraps Telegram's own
  * ActionBarMenuSubItem -- the same row component Telegram uses for its
  * native popup/context menus -- without exposing that class to callers.
+ * ActionBarMenuSubItem already styles itself from Telegram's theme colors
+ * out of the box, so this looks fully native by default. A plugin can call
+ * setTextColor() (applied to both the label and icon) and
+ * setBackgroundColor() (applied to the row's press/selector highlight,
+ * since a menu row has no filled background of its own) to opt into fixed
+ * literal colors instead; passing null to either reverts that part back to
+ * Telegram's themed default.
  *
  * Implements FluxViewProvider so it can also be placed inside a
  * FluxContainer (Flux.UI.ChatMenu, Flux.UI.MessageMenu, etc), in addition
@@ -27,6 +35,11 @@ final class FluxMenuItem implements FluxComponent, FluxViewProvider {
     private static final String TAG = "Flux.UI.MenuItem";
 
     private final ActionBarMenuSubItem view;
+
+    // null means "use Telegram's own themed default"; non-null means a
+    // plugin explicitly overrode it via setBackgroundColor()/setTextColor().
+    private Integer backgroundColorOverride;
+    private Integer textColorOverride;
 
     FluxMenuItem(Context context, String text, int iconResId) {
         view = new ActionBarMenuSubItem(context, true, true);
@@ -47,6 +60,22 @@ final class FluxMenuItem implements FluxComponent, FluxViewProvider {
     @Override
     public FluxComponent setIcon(int iconResId) {
         view.setIcon(iconResId);
+        return this;
+    }
+
+    @Override
+    public FluxComponent setBackgroundColor(Integer color) {
+        backgroundColorOverride = color;
+        view.setSelectorColor(color != null ? color : Theme.getColor(Theme.key_dialogButtonSelector));
+        return this;
+    }
+
+    @Override
+    public FluxComponent setTextColor(Integer color) {
+        textColorOverride = color;
+        int resolved = color != null ? color : Theme.getColor(Theme.key_actionBarDefaultSubmenuItem);
+        int resolvedIcon = color != null ? color : Theme.getColor(Theme.key_actionBarDefaultSubmenuItemIcon);
+        view.setColors(resolved, resolvedIcon);
         return this;
     }
 
