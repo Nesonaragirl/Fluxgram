@@ -89,15 +89,23 @@ final class FluxButton implements FluxComponent, FluxViewProvider {
 
     @Override
     public FluxComponent attach() {
+        // A plugin can call this before any Activity has resumed (plugins
+        // load during Application.postInitApplication()). Retry once one
+        // becomes available instead of silently dropping the attach.
+        FluxActivityTracker.runWhenActivityAvailable(this::doAttach);
+        return this;
+    }
+
+    private void doAttach() {
         Activity activity = FluxActivityTracker.getCurrentActivity();
         if (activity == null) {
             Log.d(TAG, "attach: no foreground Activity to attach to.");
-            return this;
+            return;
         }
         ViewGroup content = activity.findViewById(android.R.id.content);
         if (content == null) {
             Log.d(TAG, "attach: current Activity has no content root.");
-            return this;
+            return;
         }
         ViewGroup currentParent = (ViewGroup) view.getParent();
         if (currentParent != null) {
@@ -108,7 +116,6 @@ final class FluxButton implements FluxComponent, FluxViewProvider {
         params.gravity = Gravity.BOTTOM | Gravity.END;
         params.rightMargin = params.bottomMargin = AndroidUtilities.dp(16);
         content.addView(view, params);
-        return this;
     }
 
     @Override
