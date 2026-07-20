@@ -233,7 +233,7 @@ public class FluxPreferencesActivity extends BaseFragment {
         File tempZip = new File(ApplicationLoader.applicationContext.getCacheDir(), "flux_import_" + System.currentTimeMillis() + ".zip");
         try {
             copyUriToFile(uri, tempZip);
-            FluxPlugin plugin = PluginManager.importFromZip(tempZip);
+CaintPlugin plugin = PluginManager.importFromZip(tempZip);
             showImportSuccess(plugin);
         } catch (IOException | PluginManifest.ManifestException e) {
             showImportError(e.getMessage() != null ? e.getMessage() : "Couldn't import that zip file.");
