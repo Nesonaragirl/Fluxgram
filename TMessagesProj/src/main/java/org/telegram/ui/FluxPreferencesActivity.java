@@ -39,24 +39,20 @@ import java.util.ArrayList;
  * Sections:
  *  - Plugins: entry point into the plugin system (see {@link PluginsActivity}).
  *             "My Plugins" and "Import from File" (zip or folder) are wired
- *             up; the rest of the rows in this screen are placeholders for
- *             future functionality.
- *  - Appearance: client customization options (themes, icon, fonts, bubbles, accent color).
- *  - Updates & About: version/update info and links.
+ *             up; Auto-Update Plugins is a placeholder toggle.
+ *  - Updates & About: current version, changelog, GitHub repository, and about links.
  */
 public class FluxPreferencesActivity extends BaseFragment {
+
+    private static final String FLUXGRAM_VERSION = "0.1.0 - dev";
+    private static final String GITHUB_REPOSITORY_URL = "https://github.com/Nesonaragirl/Fluxgram";
+    private static final String CHANGELOG_URL = "https://github.com/Nesonaragirl/Fluxgram/commits/master";
 
     private static final int ID_MY_PLUGINS = 1;
     private static final int ID_AUTO_UPDATE_PLUGINS = 3;
     private static final int ID_IMPORT_FROM_FILE = 4;
 
-    private static final int ID_CUSTOM_THEMES = 5;
-    private static final int ID_APP_ICON = 6;
-    private static final int ID_CUSTOM_FONTS = 7;
-    private static final int ID_BUBBLE_STYLE = 8;
-    private static final int ID_ACCENT_COLOR = 9;
-
-    private static final int ID_CHECK_UPDATES = 10;
+    private static final int ID_VERSIONS = 10;
     private static final int ID_CHANGELOG = 11;
     private static final int ID_GITHUB_REPOSITORY = 12;
     private static final int ID_ABOUT_FLUXGRAM = 13;
@@ -65,7 +61,6 @@ public class FluxPreferencesActivity extends BaseFragment {
     private static final int REQUEST_CODE_IMPORT_FOLDER = 4002;
 
     private boolean autoUpdatePlugins = true;
-    private boolean customFonts = false;
 
     private UniversalRecyclerView listView;
 
@@ -101,18 +96,9 @@ public class FluxPreferencesActivity extends BaseFragment {
         items.add(UItem.asButton(ID_IMPORT_FROM_FILE, "Import from File", ""));
         items.add(UItem.asShadow(null));
 
-        // Appearance
-        items.add(UItem.asHeader("Appearance"));
-        items.add(UItem.asButton(ID_CUSTOM_THEMES, "Custom Themes", "2"));
-        items.add(UItem.asButton(ID_APP_ICON, "App Icon", "Default"));
-        items.add(UItem.asSwitch(ID_CUSTOM_FONTS, "Custom Fonts").setChecked(customFonts));
-        items.add(UItem.asButton(ID_BUBBLE_STYLE, "Bubble Style", "Rounded"));
-        items.add(UItem.asButton(ID_ACCENT_COLOR, "Accent Color", ""));
-        items.add(UItem.asShadow("Manage the appearance, plugins, and updates of your FluxGram client."));
-
         // Updates & About
         items.add(UItem.asHeader("Updates & About"));
-        items.add(UItem.asButton(ID_CHECK_UPDATES, "Check for Updates", "v12.8.1"));
+        items.add(UItem.asButton(ID_VERSIONS, "Versions", FLUXGRAM_VERSION));
         items.add(UItem.asButton(ID_CHANGELOG, "Changelog"));
         items.add(UItem.asButton(ID_GITHUB_REPOSITORY, "GitHub Repository"));
         items.add(UItem.asButton(ID_ABOUT_FLUXGRAM, "About FluxGram"));
@@ -129,13 +115,36 @@ public class FluxPreferencesActivity extends BaseFragment {
             }
         } else if (item.id == ID_IMPORT_FROM_FILE) {
             showImportSourcePicker();
-        } else if (item.id == ID_CUSTOM_FONTS) {
-            customFonts = !customFonts;
-            if (listView != null && listView.adapter != null) {
-                listView.adapter.update(true);
-            }
+        } else if (item.id == ID_CHANGELOG) {
+            openUrl(CHANGELOG_URL);
+        } else if (item.id == ID_GITHUB_REPOSITORY) {
+            openUrl(GITHUB_REPOSITORY_URL);
+        } else if (item.id == ID_ABOUT_FLUXGRAM) {
+            showAboutDialog();
         }
-        // All other rows are placeholders for now and intentionally have no action.
+    }
+
+    private void openUrl(String url) {
+        if (getContext() == null) {
+            return;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            getContext().startActivity(intent);
+        } catch (Exception e) {
+            showImportError("Couldn't open a browser on this device.");
+        }
+    }
+
+    private void showAboutDialog() {
+        if (getContext() == null) {
+            return;
+        }
+        new AlertDialog.Builder(getContext(), getResourceProvider())
+                .setTitle("About FluxGram")
+                .setMessage("FluxGram " + FLUXGRAM_VERSION + "\n\nA Telegram client fork with a Lua-based plugin system, built on top of DrKLO/Telegram.\n\n" + GITHUB_REPOSITORY_URL)
+                .setPositiveButton("OK", null)
+                .show();
     }
 
     /** Lets the user choose whether they're importing a .zip archive or an unpacked folder. */
