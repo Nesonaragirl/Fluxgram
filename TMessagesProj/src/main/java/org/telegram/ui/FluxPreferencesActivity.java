@@ -48,6 +48,31 @@ public class FluxPreferencesActivity extends BaseFragment {
     private static final String GITHUB_REPOSITORY_URL = "https://github.com/Nesonaragirl/Fluxgram";
     private static final String CHANGELOG_URL = "https://github.com/Nesonaragirl/Fluxgram/blob/los/CHANGELOG.md";
 
+    /**
+     * Log entries shown in the "Changelogs" popup. Kept in sync by hand with
+     * CHANGELOG.md on the los branch (linked at the bottom of the popup for
+     * the full history).
+     */
+    private static final String CHANGELOG_ENTRIES =
+            "Plugins\n" +
+            "\u2022 Added manifest.json plugin manifest format\n" +
+            "\u2022 Added PluginManifest parser with validation\n" +
+            "\u2022 Added PluginManager: scans flux_plugins/, loads each plugin's Entrypoint script\n" +
+            "\u2022 Wired plugin loading into app startup\n" +
+            "\u2022 Added zip/folder import for plugins\n" +
+            "\u2022 My Plugins now lists installed plugins with visibility toggles\n" +
+            "\u2022 Added retry queue so UI components attach reliably\n\n" +
+            "FluxGram Preferences\n" +
+            "\u2022 Added FluxGram Preferences screen under Settings\n" +
+            "\u2022 Modernized layout with real switch toggles\n" +
+            "\u2022 Removed the standalone Plugins on/off row\n" +
+            "\u2022 Removed the Appearance section\n" +
+            "\u2022 Wired up Changelog, GitHub Repository, and About FluxGram\n" +
+            "\u2022 Renamed \"Check for Updates\" to \"Versions\"\n\n" +
+            "Build\n" +
+            "\u2022 Fixed R8 release build failure from the LuaJ dependency\n" +
+            "\u2022 Added GitHub Actions CI workflow";
+
     private static final int ID_MY_PLUGINS = 1;
     private static final int ID_AUTO_UPDATE_PLUGINS = 3;
     private static final int ID_IMPORT_FROM_FILE = 4;
@@ -116,12 +141,25 @@ public class FluxPreferencesActivity extends BaseFragment {
         } else if (item.id == ID_IMPORT_FROM_FILE) {
             showImportSourcePicker();
         } else if (item.id == ID_CHANGELOG) {
-            openUrl(CHANGELOG_URL);
+            showChangelogDialog();
         } else if (item.id == ID_GITHUB_REPOSITORY) {
             openUrl(GITHUB_REPOSITORY_URL);
         } else if (item.id == ID_ABOUT_FLUXGRAM) {
             showAboutDialog();
         }
+    }
+
+    /** Shows the current version and recent log entries in an in-app popup. */
+    private void showChangelogDialog() {
+        if (getContext() == null) {
+            return;
+        }
+        String message = FLUXGRAM_VERSION + "\n\n" + CHANGELOG_ENTRIES + "\n\nFull history: " + CHANGELOG_URL;
+        new AlertDialog.Builder(getContext(), getResourceProvider())
+                .setTitle("Changelogs")
+                .setMessage(message)
+                .setPositiveButton("OK", null)
+                .show();
     }
 
     private void openUrl(String url) {
