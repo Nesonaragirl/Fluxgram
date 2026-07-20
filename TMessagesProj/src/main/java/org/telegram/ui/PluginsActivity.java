@@ -95,7 +95,7 @@ public class PluginsActivity extends BaseFragment {
         List<CaintPlugin> plugins = PluginManager.getLoadedPlugins();
             int index = item.id - ID_PLUGIN_VISIBILITY_BASE;
             if (index >= 0 && index < plugins.size()) {
-                FluxPlugin plugin = plugins.get(index);
+                CaintPlugin plugin = plugins.get(index);
                 boolean visible = !PluginManager.isPluginVisible(plugin.id);
                 PluginManager.setPluginVisible(plugin.id, visible);
                 if (view instanceof TextCheckCell) {
