@@ -4,7 +4,7 @@ import android.content.Context;
 import android.view.View;
 import android.widget.FrameLayout;
 
-import com.fluxgram.plugin.FluxPlugin;
+import com.caint.plugin.CaintPlugin;
 import com.fluxgram.plugin.PluginManager;
 
 import org.telegram.messenger.R;
