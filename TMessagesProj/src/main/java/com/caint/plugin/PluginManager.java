@@ -378,6 +378,7 @@ public final class PluginManager {
         File manifestFile = new File(pluginDir, MANIFEST_FILE_NAME);
         if (!manifestFile.exists()) {
             Log.w(TAG, "Skipping \"" + id + "\": no manifest.json found");
+            loadFailures.add(new PluginLoadFailure(id, null, "No manifest.json found", null));
             return null;
         }
 
