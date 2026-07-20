@@ -111,6 +111,12 @@
 -keep class ru.noties.jlatexmath.** { *; }
 -dontwarn org.scilab.forge.jlatexmath.**
 
+# LuaJ's script-engine integration references javax.script.* (desktop JDK only,
+# not present on Android). Not used by this app, so tell R8 to ignore it
+# instead of failing the build.
+-dontwarn javax.script.**
+-dontwarn org.luaj.vm2.script.**
+
 # Use -keep to explicitly keep any other classes shrinking would remove
 -dontoptimize
 -dontobfuscate
