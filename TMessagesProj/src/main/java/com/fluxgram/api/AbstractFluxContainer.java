@@ -126,7 +126,18 @@ class AbstractFluxContainer implements FluxContainer {
 
         ViewGroup target = host != null ? host : fallbackHost();
         if (target == null) {
-            Log.d(TAG, "place: no host available for " + type + " yet.");
+            // Plugins can add() to a container before any Activity has
+            // resumed (they load during Application.postInitApplication()).
+            // Retry once one becomes available instead of dropping this
+            // placement forever. If the component or container changes
+            // state before then, this re-checks host/membership at retry
+            // time rather than blindly re-placing.
+            Log.d(TAG, "place: no host available for " + type + " yet, will retry.");
+            FluxActivityTracker.runWhenActivityAvailable(() -> {
+                if (components.get(idOf(component)) == component) {
+                    place(component);
+                }
+            });
             return;
         }
 
@@ -145,6 +156,15 @@ class AbstractFluxContainer implements FluxContainer {
             params.leftMargin = params.rightMargin = params.topMargin = params.bottomMargin = AndroidUtilities.dp(16);
             target.addView(view, params);
         }
+    }
+
+    private String idOf(FluxComponent component) {
+        for (Map.Entry<String, FluxComponent> entry : components.entrySet()) {
+            if (entry.getValue() == component) {
+                return entry.getKey();
+            }
+        }
+        return null;
     }
 
     private ViewGroup fallbackHost() {
