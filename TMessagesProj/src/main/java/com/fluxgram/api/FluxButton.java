@@ -17,8 +17,11 @@ import org.telegram.ui.ActionBar.Theme;
  * FluxButton
  *
  * Backs Flux.UI.createButton(...). Wraps a plain, real Android TextView
- * styled with Telegram's own Theme drawable helpers so it looks native, but
- * never hands that TextView out through the FluxComponent surface.
+ * styled with Telegram's own Theme colors, so it looks fully native by
+ * default -- the same blue "add button" look Telegram itself uses. A
+ * plugin can call setBackgroundColor()/setTextColor() to opt into a fixed
+ * literal color instead; passing null to either clears the override and
+ * reverts that part of the button back to Telegram's themed default.
  *
  * Implements FluxViewProvider so it can also be placed inside a
  * FluxContainer (Flux.UI.ChatHeader, etc), in addition to its own attach().
@@ -27,23 +30,29 @@ final class FluxButton implements FluxComponent, FluxViewProvider {
 
     private static final String TAG = "Flux.UI.Button";
 
-    // Simple default styling. Deliberately literal colors (rather than a
-    // half-guessed Theme color key) so this compiles reliably; theming can
-    // be refined once Flux.Settings/theming support lands.
-    private static final int COLOR_BACKGROUND = 0xFF4E9CDE;
-    private static final int COLOR_BACKGROUND_PRESSED = 0xFF3E82BD;
-    private static final int COLOR_TEXT = 0xFFFFFFFF;
-
     private final TextView view;
+
+    // null means "use Telegram's own themed default"; non-null means a
+    // plugin explicitly overrode it via setBackgroundColor()/setTextColor().
+    private Integer backgroundColorOverride;
+    private Integer textColorOverride;
 
     FluxButton(Context context, String text) {
         view = new TextView(context);
         view.setGravity(Gravity.CENTER);
-        view.setTextColor(COLOR_TEXT);
         view.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
         view.setPadding(AndroidUtilities.dp(24), AndroidUtilities.dp(10), AndroidUtilities.dp(24), AndroidUtilities.dp(10));
-        view.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(6), COLOR_BACKGROUND, COLOR_BACKGROUND_PRESSED));
         view.setText(text != null ? text : "");
+        updateStyle();
+    }
+
+    /** Recomputes the button's background drawable and text color from either its overrides or Telegram's current theme. */
+    private void updateStyle() {
+        int background = backgroundColorOverride != null ? backgroundColorOverride : Theme.getColor(Theme.key_featuredStickers_addButton);
+        int backgroundPressed = backgroundColorOverride != null ? backgroundColorOverride : Theme.getColor(Theme.key_featuredStickers_addButtonPressed);
+        int text = textColorOverride != null ? textColorOverride : Theme.getColor(Theme.key_featuredStickers_buttonText);
+        view.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(6), background, backgroundPressed));
+        view.setTextColor(text);
     }
 
     @Override
@@ -61,6 +70,20 @@ final class FluxButton implements FluxComponent, FluxViewProvider {
     public FluxComponent setIcon(int iconResId) {
         view.setCompoundDrawablesWithIntrinsicBounds(iconResId, 0, 0, 0);
         view.setCompoundDrawablePadding(AndroidUtilities.dp(8));
+        return this;
+    }
+
+    @Override
+    public FluxComponent setBackgroundColor(Integer color) {
+        backgroundColorOverride = color;
+        updateStyle();
+        return this;
+    }
+
+    @Override
+    public FluxComponent setTextColor(Integer color) {
+        textColorOverride = color;
+        updateStyle();
         return this;
     }
 
