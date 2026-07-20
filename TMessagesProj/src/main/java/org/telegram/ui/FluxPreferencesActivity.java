@@ -46,7 +46,7 @@ public class FluxPreferencesActivity extends BaseFragment {
 
     private static final String FLUXGRAM_VERSION = "0.1.0 - dev";
     private static final String GITHUB_REPOSITORY_URL = "https://github.com/Nesonaragirl/Fluxgram";
-    private static final String CHANGELOG_URL = "https://github.com/Nesonaragirl/Fluxgram/commits/master";
+    private static final String CHANGELOG_URL = "https://github.com/Nesonaragirl/Fluxgram/blob/los/CHANGELOG.md";
 
     private static final int ID_MY_PLUGINS = 1;
     private static final int ID_AUTO_UPDATE_PLUGINS = 3;
