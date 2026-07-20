@@ -69,7 +69,7 @@ public class PluginsActivity extends BaseFragment {
             items.add(UItem.asShadow("No plugins installed yet."));
         } else {
             for (int i = 0; i < plugins.size(); i++) {
-                FluxPlugin plugin = plugins.get(i);
+                CaintPlugin plugin = plugins.get(i);
                 items.add(UItem.asCheck(ID_PLUGIN_VISIBILITY_BASE + i, plugin.manifest.name)
                         .setChecked(PluginManager.isPluginVisible(plugin.id)));
             }
