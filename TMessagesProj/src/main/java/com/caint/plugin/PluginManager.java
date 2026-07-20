@@ -396,6 +396,7 @@ public final class PluginManager {
             manifest = PluginManifest.parse(manifestJson);
         } catch (PluginManifest.ManifestException e) {
             Log.w(TAG, "Skipping \"" + id + "\": " + e.getMessage());
+            loadFailures.add(new PluginLoadFailure(id, null, e.getMessage(), Log.getStackTraceString(e)));
             return null;
         }
 
