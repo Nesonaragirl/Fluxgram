@@ -38,7 +38,9 @@ import java.util.zip.ZipInputStream;
  *
  * A malformed manifest, a missing entrypoint file, or a plugin script that
  * throws while loading only skips that one plugin -- it never stops the
- * rest of the scan or crashes the host app.
+ * rest of the scan or crashes the host app. Instead, the failure (with a
+ * full log/stack trace) is recorded via loadFailures / getLoadFailures()
+ * so the UI can surface it to the user.
  *
  * Plugins can also be brought in from outside the plugins root via
  * importFromZip() / importFromFolder() -- see below.
@@ -93,7 +95,6 @@ public final class PluginManager {
     /** Plugins that failed to load on the last loadAll() call, with details for the error popup. */
     public static List<PluginLoadFailure> getLoadFailures() {
         return Collections.unmodifiableList(loadFailures);
-    }
     }
 
     /**
@@ -240,7 +241,20 @@ public final class PluginManager {
                 return plugin;
             }
         }
-        throw new IOException("Plugin was imported but failed to load -- check its manifest.json and entrypoint");
+
+        PluginLoadFailure failure = findLoadFailure(destDir.getName());
+        String detail = failure != null && failure.message != null ? ": " + failure.message : "";
+        throw new IOException("Plugin was imported but failed to load" + detail + " -- check its manifest.json and entrypoint");
+    }
+
+    /** Finds the recorded load failure for a plugin id, if any (used to surface a useful import error). */
+    private static PluginLoadFailure findLoadFailure(String id) {
+        for (PluginLoadFailure failure : loadFailures) {
+            if (failure.id.equals(id)) {
+                return failure;
+            }
+        }
+        return null;
     }
 
     /**
@@ -368,9 +382,10 @@ public final class PluginManager {
     }
 
     /**
-     * Loads a single plugin from its folder. Returns null (and logs why)
-     * if the manifest is missing/invalid, the entrypoint file is missing,
-     * or the script itself throws while executing.
+     * Loads a single plugin from its folder. Returns null if the manifest
+     * is missing/invalid, the entrypoint file is missing, or the script
+     * itself throws while executing -- in every case, a PluginLoadFailure
+     * with the full log/stack trace is added to loadFailures first.
      */
     private static CaintPlugin loadPlugin(File pluginDir) {
         String id = pluginDir.getName();
@@ -402,8 +417,9 @@ public final class PluginManager {
 
         File entrypointFile = new File(pluginDir, manifest.entrypoint);
         if (!entrypointFile.exists()) {
-            Log.w(TAG, "Skipping \"" + id + "\" (" + manifest.name + "): entrypoint \""
-                    + manifest.entrypoint + "\" not found");
+            String message = "Entrypoint \"" + manifest.entrypoint + "\" not found";
+            Log.w(TAG, "Skipping \"" + id + "\" (" + manifest.name + "): " + message);
+            loadFailures.add(new PluginLoadFailure(id, manifest.name, message, null));
             return null;
         }
 
@@ -412,6 +428,7 @@ public final class PluginManager {
             script = readFile(entrypointFile);
         } catch (IOException e) {
             Log.w(TAG, "Skipping \"" + id + "\" (" + manifest.name + "): failed to read entrypoint", e);
+            loadFailures.add(new PluginLoadFailure(id, manifest.name, "Failed to read entrypoint: " + e.getMessage(), Log.getStackTraceString(e)));
             return null;
         }
 
@@ -424,9 +441,11 @@ public final class PluginManager {
             chunk.call();
         } catch (LuaError e) {
             Log.e(TAG, "Skipping \"" + id + "\" (" + manifest.name + "): script threw while loading", e);
+            loadFailures.add(new PluginLoadFailure(id, manifest.name, e.getMessage() != null ? e.getMessage() : "Script threw while loading", Log.getStackTraceString(e)));
             return null;
         } catch (Exception e) {
             Log.e(TAG, "Skipping \"" + id + "\" (" + manifest.name + "): unexpected error while loading", e);
+            loadFailures.add(new PluginLoadFailure(id, manifest.name, e.getMessage() != null ? e.getMessage() : "Unexpected error while loading", Log.getStackTraceString(e)));
             return null;
         }
 
