@@ -12,9 +12,9 @@ import org.telegram.ui.ActionBar.AlertDialog;
  * so dialogs created through Flux look and behave like native Telegram
  * dialogs, without exposing AlertDialog itself to callers.
  *
- * Note: icon and enabled/disabled state don't have an obvious equivalent
- * for a modal dialog yet, so those two methods are logged placeholders for
- * now rather than guessed-at implementations.
+ * Note: icon, enabled/disabled state, and custom colors don't have an
+ * obvious equivalent for a modal dialog yet, so those methods are logged
+ * placeholders for now rather than guessed-at implementations.
  */
 final class FluxDialog implements FluxComponent {
 
@@ -49,6 +49,18 @@ final class FluxDialog implements FluxComponent {
     @Override
     public FluxComponent setIcon(int iconResId) {
         Log.d(TAG, "setIcon: Not implemented yet for dialogs.");
+        return this;
+    }
+
+    @Override
+    public FluxComponent setBackgroundColor(Integer color) {
+        Log.d(TAG, "setBackgroundColor: Not implemented yet for dialogs.");
+        return this;
+    }
+
+    @Override
+    public FluxComponent setTextColor(Integer color) {
+        Log.d(TAG, "setTextColor: Not implemented yet for dialogs.");
         return this;
     }
 
