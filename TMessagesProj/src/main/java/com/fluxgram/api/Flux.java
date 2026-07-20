@@ -1,5 +1,7 @@
 package com.fluxgram.api;
 
+import com.fluxgram.plugin.PluginManager;
+
 import org.telegram.messenger.ApplicationLoader;
 
 /**
@@ -12,9 +14,9 @@ import org.telegram.messenger.ApplicationLoader;
  * below (UI, Events, Settings, Dialogs, Utils) is a self-contained namespace
  * that can evolve independently.
  *
- * Still no plugin system and no sandboxing -- that comes later. This stage
- * wires Events and UI up to real Telegram behavior while keeping the public
- * API unchanged.
+ * Still no sandboxing (permission enforcement) -- that comes later. This
+ * stage wires Events, UI, and plugin loading up to real behavior while
+ * keeping the public API unchanged.
  *
  * Usage:
  *   Flux.UI.createButton("Tap me").onClick(data -> ...).attach();
@@ -38,8 +40,9 @@ public final class Flux {
 
     /**
      * Wires Flux into the running Telegram client -- attaches the
-     * NotificationCenter -> Flux.Events bridge and starts tracking the
-     * foreground Activity so Flux.UI components can attach() themselves.
+     * NotificationCenter -> Flux.Events bridge, starts tracking the
+     * foreground Activity so Flux.UI components can attach() themselves,
+     * and loads every plugin found under PluginManager.getPluginsRoot().
      * Safe to call more than once; only does real work the first time.
      *
      * Should be called once core services are up, e.g. from
@@ -52,5 +55,6 @@ public final class Flux {
         initialized = true;
         FluxNotificationBridge.attach();
         FluxActivityTracker.attach(ApplicationLoader.applicationLoaderInstance);
+        PluginManager.loadAll();
     }
 }
